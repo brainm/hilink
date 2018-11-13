@@ -77,18 +77,25 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	// start session
 	if !c.nostart {
-		// retrieve session id
-		sessID, tokID, err := c.NewSessionAndTokenID()
-		if err != nil {
-			return nil, err
+		// retrieve token (old api)
+		if tokID, err := c.NewTokenID(); err == nil {
+			// set session id
+			err = c.SetTokenID(tokID)
+			if err != nil {
+				return nil, err
+			}
+		}else{
+			// retrieve session id (new api)
+			sessID, tokID, err := c.NewSessionAndTokenID()
+			if err != nil {
+				return nil, err
+			}
+			// set session id
+			err = c.SetSessionAndTokenID(sessID, tokID)
+			if err != nil {
+				return nil, err
+			}
 		}
-
-		// set session id
-		err = c.SetSessionAndTokenID(sessID, tokID)
-		if err != nil {
-			return nil, err
-		}
-
 		// try login, ignore the OK value
 		_, err = c.login()
 		if err != nil {
@@ -102,7 +109,12 @@ func NewClient(opts ...Option) (*Client, error) {
 // createRequest creates a request for use with the Client.
 func (c *Client) createRequest(urlstr string, v interface{}) (*http.Request, error) {
 	if v == nil {
-		return http.NewRequest("GET", urlstr, nil)
+		req, err := http.NewRequest("GET", urlstr, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set(TokenHeader, c.token)
+		return req, nil
 	}
 
 	// encode xml
@@ -266,6 +278,35 @@ func (c *Client) Do(path string, v interface{}) (XMLData, error) {
 
 // NewSessionAndTokenID starts a session with the server, and returns the
 // session and token.
+func (c *Client) NewTokenID() (string, error) {
+	res, err := c.doReq("api/webserver/token", nil, true)
+	if err != nil {
+		return "", err
+	}
+
+	// convert
+	vals, ok := res.(map[string]interface{})
+	if !ok {
+		return "", ErrInvalidResponse
+	}
+
+	// check ses/tokInfo present
+	t, ok := vals["token"]
+	if !ok {
+		return "", ErrInvalidResponse
+	}
+
+	// convert to strings
+	token, ok := t.(string)
+	if !ok {
+		return "", ErrInvalidResponse
+	}
+
+	return token, nil
+}
+
+// NewSessionAndTokenID starts a session with the server, and returns the
+// session and token.
 func (c *Client) NewSessionAndTokenID() (string, string, error) {
 	res, err := c.doReq("api/webserver/SesTokInfo", nil, true)
 	if err != nil {
@@ -299,6 +340,16 @@ func (c *Client) NewSessionAndTokenID() (string, string, error) {
 	}
 
 	return strings.TrimPrefix(s, "SessionID="), t, nil
+}
+
+// SetTokenID sets tokenID for the Client.
+func (c *Client) SetTokenID(tokenID string) error {
+	c.Lock()
+	defer c.Unlock()
+
+	c.token = tokenID
+
+	return nil
 }
 
 // SetSessionAndTokenID sets the sessionID and tokenID for the Client.

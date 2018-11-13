@@ -11,8 +11,11 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"net"
+	"net/http"
+	"context"
 
-	"github.com/knq/hilink"
+	"github.com/brainm/hilink"
 )
 
 func doExit(msg string, args ...interface{}) {
@@ -165,6 +168,7 @@ func main() {
 	fs := flag.NewFlagSet(method.Name, flag.ExitOnError)
 	flagDebug := fs.Bool("v", false, "enable verbose")
 	flagEndpoint := fs.String("endpoint", "http://192.168.8.1/", "api endpoint")
+	flagLocaladdr := fs.String("localaddr", "192.168.8.100", "use local address")
 
 	isVariadic := method.Type.IsVariadic()
 
@@ -201,6 +205,22 @@ func main() {
 	// hilink options
 	opts := []hilink.Option{
 		hilink.URL(*flagEndpoint),
+		hilink.HTTPClient(&http.Client{
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					var dialer *net.Dialer
+					var conn net.Conn
+					var err error
+					dialer = &net.Dialer{
+						LocalAddr:  &net.TCPAddr{
+							IP: net.ParseIP(*flagLocaladdr),
+						},
+					}
+					conn, err = dialer.DialContext(context.Background(), network, addr)
+					return conn, err
+				},
+			},
+		}),
 	}
 	if *flagDebug {
 		opts = append(opts, hilink.Log(log.Printf, log.Printf))
